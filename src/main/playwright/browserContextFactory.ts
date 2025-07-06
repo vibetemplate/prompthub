@@ -206,29 +206,16 @@ export class PersistentContextFactory implements BrowserContextFactory {
         }
         
         const contextOptions = {
-          // 🔥 关键7：上下文配置
+          // 🔥 关键：简化配置，确保JavaScript能正常执行
           viewport: null,
-          
-          // 🔥 关键8：使用最新的Chrome User-Agent (不包含HeadlessChrome)
-          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
           locale: 'zh-CN',
           timezoneId: 'Asia/Shanghai',
           
-          // 权限设置
-          permissions: ['geolocation', 'notifications'],
+          // 🔥 关键：允许JavaScript执行
+          javaScriptEnabled: true,
           
-          // HTTP头部
-          extraHTTPHeaders: {
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-            'Cache-Control': 'max-age=0',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1'
-          }
+          // 🔥 关键：忽略HTTPS错误，确保外部资源能加载
+          ignoreHTTPSErrors: true,
         }
         
         // 🔥 关键9：按照playwright-mcp的方式合并配置
@@ -246,7 +233,8 @@ export class PersistentContextFactory implements BrowserContextFactory {
         
         const browserContext = await chromium.launchPersistentContext(userDataDir, finalOptions)
 
-        // 完全依赖assistantMode处理反检测，不添加额外脚本
+        // 🔥 关键：移除所有请求拦截，确保JavaScript资源能正常加载
+        // 不设置任何 route 拦截，让所有资源正常加载
 
         const close = () => this._closeBrowserContext(browserContext, userDataDir)
         
@@ -273,33 +261,7 @@ export class PersistentContextFactory implements BrowserContextFactory {
     throw new Error(`浏览器被占用，无法使用 ${userDataDir}，请考虑关闭其他Chrome实例`)
   }
 
-  private async _setupRequestInterception(browserContext: BrowserContext) {
-    // 简化版本：只拦截明显的追踪请求，不干扰Cloudflare
-    await callOnContextNoTrace(browserContext, async (context) => {
-      await context.route('**/*', (route) => {
-        const url = route.request().url()
-        
-        // 只阻止明显的追踪请求
-        const trackingPatterns = [
-          'google-analytics', 'gtag', 'gtm',
-          'facebook.com/tr', 'connect.facebook.net',
-          'doubleclick.net', 'googlesyndication.com'
-        ]
-        
-        const isTracking = trackingPatterns.some(pattern => 
-          url.toLowerCase().includes(pattern)
-        )
-        
-        if (isTracking) {
-          route.abort('blockedbyclient')
-          return
-        }
-        
-        // 其他请求直接通过，不修改headers
-        route.continue()
-      })
-    })
-  }
+  // 🔥 移除请求拦截方法，确保所有资源都能正常加载
 
   private async _closeBrowserContext(browserContext: BrowserContext, userDataDir: string) {
     console.log('🧹 关闭持久化浏览器上下文...')

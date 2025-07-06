@@ -240,81 +240,52 @@ export class PlaywrightController {
         tab = await this.ensureTab()
       }
       
-      // 设置页面超时 - 使用更合理的超时设置
+      // 🔥 关键：设置playwright-mcp风格的超时
       try {
-        await callOnPageNoTrace(tab.page, async (page) => {
-          page.setDefaultTimeout(60000)
-          page.setDefaultNavigationTimeout(60000)
-        })
+        tab.page.setDefaultNavigationTimeout(60000) // 导航超时稍长
+        tab.page.setDefaultTimeout(5000) // 默认操作超时短，像playwright-mcp
       } catch (error) {
         console.warn('⚠️ 设置页面超时失败，页面可能已关闭:', error)
         // 重新获取标签页
         tab = await this.ensureTab()
-        await callOnPageNoTrace(tab.page, async (page) => {
-          page.setDefaultTimeout(60000)
-          page.setDefaultNavigationTimeout(60000)
-        })
+        tab.page.setDefaultNavigationTimeout(60000)
+        tab.page.setDefaultTimeout(5000)
       }
       
-      console.log(`🔄 导航到: ${url}`)
+      // 🔥 关键：采用playwright-mcp的简单导航策略
       
-      // 使用内部API导航，避免被检测 - 增加重试机制
-      let navigationSuccess = false
-      let retryCount = 0
-      const maxRetries = 2
-      
-      while (!navigationSuccess && retryCount < maxRetries) {
-        try {
-          await callOnPageNoTrace(tab.page, async (page) => {
-            await page.goto(url, { 
-              waitUntil: 'domcontentloaded',
-              timeout: 60000 
-            })
-          })
-          navigationSuccess = true
-        } catch (error) {
-          retryCount++
-          console.warn(`⚠️ 导航失败 (尝试 ${retryCount}/${maxRetries}):`, error)
-          
-          if (retryCount < maxRetries) {
-            // 如果是页面关闭错误，重新创建标签页
-            if (error.message && error.message.includes('Target page, context or browser has been closed')) {
-              console.log('🔄 页面已关闭，重新创建标签页...')
-              this.tabs.delete(tab.id)
-              this.currentTab = null
-              tab = await this.ensureTab()
-            } else {
-              // 其他错误，等待1秒后重试
-              await new Promise(resolve => setTimeout(resolve, 1000))
-            }
-          } else {
-            throw error
-          }
+      try {
+        // 🔥 关键：等待网络资源加载完成，确保JS能执行
+        await tab.page.goto(url, { waitUntil: 'networkidle' })
+        
+        // 额外等待，确保React应用有时间渲染
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        // 等待主要容器出现
+        await tab.page.waitForSelector('#ice-container', { timeout: 10000 }).catch(() => {
+          console.log('⚠️ ice-container未找到，但继续执行')
+        })
+      } catch (error) {
+        console.warn('⚠️ 导航过程中出现错误:', error)
+        // 如果是页面关闭错误，重新创建标签页并重试一次
+        if (error.message && error.message.includes('Target page, context or browser has been closed')) {
+          console.log('🔄 页面已关闭，重新创建标签页...')
+          this.tabs.delete(tab.id)
+          this.currentTab = null
+          tab = await this.ensureTab()
+          // 重试导航
+          await tab.page.goto(url, { waitUntil: 'networkidle' })
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          await tab.page.waitForSelector('#ice-container', { timeout: 10000 }).catch(() => {})
+        } else {
+          throw error
         }
       }
       
-      // 等待页面完全加载，让assistantMode自然处理任何挑战
-      try {
-        await waitForPageReady(tab.page)
-      } catch (error) {
-        console.warn('⚠️ 等待页面就绪失败:', error)
-        // 继续执行，不抛出错误
-      }
-      
-      // 简单的人类行为模拟
-      try {
-        await simulateHumanBehavior(tab.page)
-      } catch (error) {
-        console.warn('⚠️ 人类行为模拟失败:', error)
-        // 继续执行，不抛出错误
-      }
-      
-      // 获取页面信息 - 使用内部API避免检测
+      // 获取页面标题 - 简化版本
       let title = ''
       try {
-        title = await callOnPageNoTrace(tab.page, async (page) => {
-          return await page.title()
-        })
+        title = await tab.page.title()
       } catch (error) {
         console.warn('⚠️ 获取页面标题失败:', error)
         title = url // 使用URL作为标题
