@@ -1,0 +1,71 @@
+{
+  "name": "prompthub",
+  "version": "1.0.0",
+  "description": "AI工作流自动化中心 - 基于浏览器自动化的提示词管理与执行平台",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "electron-vite dev --watch",
+    "build": "electron-vite build",
+    "start": "electron .",
+    "package": "npm run build && electron-builder"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "typescript",
+    "playwright",
+    "ai",
+    "prompt",
+    "automation"
+  ],
+  "author": "Coso",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/uuid": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "concurrently": "^8.0.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0",
+    "electron-vite": "^3.1.0",
+    "eslint": "^8.0.0",
+    "eslint-plugin-react": "^7.0.0",
+    "eslint-plugin-react-hooks": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.0.0",
+    "antd": "^5.0.0",
+    "immer": "^10.0.0",
+    "playwright": "^1.53.2",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "uuid": "^9.0.0",
+    "zustand": "^4.0.0"
+  },
+  "build": {
+    "appId": "com.coso.prompthub",
+    "productName": "PromptHub",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
