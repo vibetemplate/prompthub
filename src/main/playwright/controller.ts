@@ -27,8 +27,8 @@ export class PlaywrightController {
   private tabs: Map<string, BrowserTab> = new Map()
   private adapters: Map<string, WebsiteAdapter> = new Map()
 
-  constructor(userDataDir?: string) {
-    this.browserContextFactory = createBrowserContextFactory(userDataDir)
+  constructor(options: { extensionMode?: boolean; userDataDir?: string } = {}) {
+    this.browserContextFactory = createBrowserContextFactory(options)
     this.initializeAdapters()
   }
 
@@ -37,11 +37,23 @@ export class PlaywrightController {
     this.adapters.set('chatgpt', new ChatGPTAdapter())
   }
 
+  private initializationPromise: Promise<void> | null = null
+
   async initialize(): Promise<void> {
     if (this.browserContext) {
       return
     }
 
+    // 防止重复初始化
+    if (this.initializationPromise) {
+      return this.initializationPromise
+    }
+
+    this.initializationPromise = this._doInitialize()
+    return this.initializationPromise
+  }
+
+  private async _doInitialize(): Promise<void> {
     try {
       console.log('🚀 初始化浏览器上下文...')
       
@@ -53,6 +65,7 @@ export class PlaywrightController {
       console.log('✅ 浏览器上下文初始化成功')
     } catch (error) {
       console.error('❌ 浏览器上下文初始化失败:', error)
+      this.initializationPromise = null // 重置以允许重试
       throw new Error('无法启动浏览器。请检查 Chrome 或 Chromium 是否已安装。')
     }
   }
@@ -86,20 +99,10 @@ export class PlaywrightController {
         })
       })
       
-      // 等待页面完全加载
+      // 等待页面完全加载，让assistantMode自然处理任何挑战
       await waitForPageReady(page)
       
-      // 检查是否遇到Cloudflare挑战
-      const isChallenge = await isCloudflareChallenge(page)
-      if (isChallenge) {
-        console.log('🛡️ 检测到Cloudflare挑战，尝试处理...')
-        const handled = await handleCloudflareChallenge(page)
-        if (!handled) {
-          console.warn('⚠️ Cloudflare挑战处理失败，但继续执行')
-        }
-      }
-      
-      // 模拟真实人类行为
+      // 简单的人类行为模拟
       await simulateHumanBehavior(page)
       
       // 获取页面信息 - 使用内部API避免检测

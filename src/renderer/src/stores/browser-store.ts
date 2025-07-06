@@ -70,7 +70,7 @@ export const useBrowserStore = create<BrowserState & BrowserActions>()(
         
         const tabId = await window.electronAPI.browser.openTab(url)
         
-        // 重新加载标签列表
+        // 重新加载标签列表以获取准确的标签信息
         await get().loadTabs()
         
         set((state) => {

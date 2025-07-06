@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import http from 'node:http'
 import { chromium, BrowserContext, Browser } from 'playwright'
 import { app } from 'electron'
 import { callOnContextNoTrace } from './utils'
+import { CDPRelayServer } from './cdpRelayServer'
 
 /**
  * 浏览器上下文工厂接口
@@ -14,6 +16,117 @@ export interface BrowserContextFactory {
     close: () => Promise<void>
     browser?: Browser
   }>
+}
+
+/**
+ * CDP 上下文工厂 - 用于连接到已存在的CDP端点
+ */
+export class CdpContextFactory implements BrowserContextFactory {
+  constructor(private _cdpEndpoint: string) {}
+
+  async createContext(): Promise<{
+    browserContext: BrowserContext
+    close: () => Promise<void>
+    browser?: Browser
+  }> {
+    console.log(`🚀 连接到CDP端点: ${this._cdpEndpoint}`)
+    const browser = await chromium.connectOverCDP(this._cdpEndpoint)
+    const browserContext = browser.contexts()[0]
+    console.log('✅ CDP连接成功，已获取浏览器上下文')
+    return {
+      browserContext,
+      close: async () => {
+        // 在这种模式下，我们不关闭浏览器，只断开连接
+        await browser.close()
+        console.log('🔌 CDP连接已断开')
+      },
+      browser
+    }
+  }
+}
+
+/**
+ * 扩展上下文工厂 - 启动中继服务器并等待扩展连接
+ */
+export class ExtensionContextFactory implements BrowserContextFactory {
+  private _cdpRelayServer: CDPRelayServer | null = null
+  private _httpServer: http.Server | null = null
+  private _actualPort: number
+
+  constructor(private _port: number) {
+    this._actualPort = _port
+  }
+
+  async createContext(): Promise<{
+    browserContext: BrowserContext
+    close: () => Promise<void>
+    browser?: Browser
+  }> {
+    console.log('🚀 启动扩展中继服务器...')
+    const factory = await this._startRelayServer()
+    console.log(`✅ 中继服务器已在端口 ${this._actualPort} 上启动`)
+    console.log('⏳ 等待Chrome扩展连接...')
+    return factory.createContext()
+  }
+
+  private async _startRelayServer(): Promise<CdpContextFactory> {
+    this._httpServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end('PromptHub CDP Relay Server\n')
+    })
+    this._cdpRelayServer = new CDPRelayServer(this._httpServer)
+
+    // 首先找到一个可用端口
+    const availablePort = await this._findFreePort()
+    this._actualPort = availablePort
+    
+    console.log(`🔍 找到可用端口: ${this._actualPort}`)
+
+    // 使用可用端口启动服务器
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this._httpServer!.once('error', reject)
+        this._httpServer!.listen(this._actualPort, '127.0.0.1', () => {
+          console.log(`✅ 中继服务器成功启动在端口 ${this._actualPort}`)
+          resolve()
+        })
+      })
+    } catch (err) {
+      console.error('❌ 启动中继服务器失败:', err)
+      throw err
+    }
+
+    const cdpEndpoint = `ws://127.0.0.1:${this._actualPort}/cdp`
+    return new CdpContextFactory(cdpEndpoint)
+  }
+
+  private async _findFreePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const net = require('net')
+      const server = net.createServer()
+      server.listen(0, () => {
+        const { port } = server.address()
+        server.close(() => resolve(port))
+      })
+      server.on('error', reject)
+    })
+  }
+
+  public async stopServer(): Promise<void> {
+    console.log('🛑 停止中继服务器...')
+    this._cdpRelayServer?.stop()
+    await new Promise<void>((resolve, reject) => {
+      if (this._httpServer) {
+        this._httpServer.close((err) => {
+          if (err) reject(err)
+          else resolve()
+        })
+      } else {
+        resolve()
+      }
+    })
+    console.log('✅ 中继服务器已停止')
+  }
 }
 
 /**
@@ -42,59 +155,67 @@ export class PersistentContextFactory implements BrowserContextFactory {
     // 重试机制，处理浏览器被占用的情况
     for (let i = 0; i < 5; i++) {
       try {
-        const browserContext = await chromium.launchPersistentContext(userDataDir, {
-          // 基础配置
-          headless: false,
-          viewport: null,
-          
+        const cdpPort = await this._findFreePort()
+        
+        // 🔥 关键：按照playwright-mcp的结构分离launchOptions和contextOptions
+        const launchOptions = {
           // 🔥 关键1：使用Chrome而不是Chromium
           channel: 'chrome',
           
-          // 🔥 关键2：添加assistantMode避免检测
-          ...{ assistantMode: true },
+          // 🔥 关键2：基础配置
+          headless: false,
           
-          // 🔥 关键3：添加CDP端口
-          ...{ cdpPort: await this._findFreePort() },
+          // 🔥 关键3：沙盒配置（与playwright-mcp一致）
+          chromiumSandbox: true,
           
-          // 🔥 关键4：playwright-mcp的完整启动参数
+          // 🔥 关键4：assistantMode是最重要的反检测配置！
+          assistantMode: true,
+          
+          // CDP端口配置
+          cdpPort: cdpPort,
+          
+          // 超时设置
+          timeout: 60000,
+          
+          // 🔥 关键5：简化启动参数，专注于必要的配置
           args: [
-            // 沙盒相关
+            // 基本沙盒配置 
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             
-            // 基础配置
+            // 基础优化
             '--no-first-run',
             '--disable-default-apps',
             '--no-default-browser-check',
-            '--disable-background-mode',
-            
-            // 🔥 关键反检测参数
-            '--disable-blink-features=AutomationControlled',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-ipc-flooding-protection',
-            '--disable-renderer-backgrounding',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-background-timer-throttling',
-            '--disable-features=TranslateUI',
-            '--disable-component-extensions-with-background-pages',
-            '--disable-background-networking',
-            '--autoplay-policy=user-gesture-required',
-            '--disable-web-security',
-            '--disable-site-isolation-trials',
-            
-            // 🔥 特殊功能启用
-            '--enable-features=AllowContentInitiatedDataUrlNavigations',
             
             // 窗口配置
             '--start-maximized'
           ],
           
-          // 超时设置
-          timeout: 60000,
+          // 🔥 关键6：添加环境变量配置
+          env: (() => {
+            const cleanEnv: { [key: string]: string | number | boolean } = {}
+            for (const key in process.env) {
+              if (process.env[key] !== undefined) {
+                cleanEnv[key] = process.env[key]!
+              }
+            }
+            cleanEnv['DISPLAY'] = process.env.DISPLAY || ':99'
+            return cleanEnv
+          })(),
           
-          // 🔥 关键5：使用最新的Chrome User-Agent (不包含HeadlessChrome)
-          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          // 信号处理
+          handleSIGINT: false,
+          handleSIGTERM: false,
+        }
+        
+        const contextOptions = {
+          // 🔥 关键7：上下文配置
+          viewport: null,
+          
+          // 🔥 关键8：使用最新的Chrome User-Agent (不包含HeadlessChrome)
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
           locale: 'zh-CN',
           timezoneId: 'Asia/Shanghai',
           
@@ -112,95 +233,25 @@ export class PersistentContextFactory implements BrowserContextFactory {
             'Sec-Fetch-Site': 'none',
             'Sec-Fetch-User': '?1',
             'Upgrade-Insecure-Requests': '1'
-          },
-          
-          // 🔥 关键6：添加环境变量配置
-          env: {
-            ...process.env,
-            // 移除可能暴露自动化的环境变量
-            CHROME_NO_SANDBOX: undefined,
-            CHROME_DISABLE_GPU: undefined,
-            DISPLAY: process.env.DISPLAY || ':99', // Linux环境备用
-          },
-          
-          // 信号处理
-          handleSIGINT: false,
-          handleSIGTERM: false,
-        })
-
-        // 设置网络请求拦截 - 借鉴playwright-mcp的技术
-        await this._setupRequestInterception(browserContext)
-
-        // 添加高级初始化脚本以隐藏自动化痕迹
-        await browserContext.addInitScript(() => {
-          // 隐藏webdriver属性
-          Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-          })
-
-          // 模拟真实的Chrome插件列表
-          Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5],
-          })
-
-          // 模拟真实的语言设置
-          Object.defineProperty(navigator, 'languages', {
-            get: () => ['zh-CN', 'zh', 'en'],
-          })
-
-          // 移除automation相关属性
-          delete (window as any).cdc_adoQpoasnfa76pfcZLmcfl_Array
-          delete (window as any).cdc_adoQpoasnfa76pfcZLmcfl_Promise
-          delete (window as any).cdc_adoQpoasnfa76pfcZLmcfl_Symbol
-
-          // 高级反检测：覆盖一些可能暴露自动化的属性
-          Object.defineProperty(navigator, 'permissions', {
-            get: () => ({
-              query: () => Promise.resolve({ state: 'granted' })
-            })
-          })
-
-          // 模拟真实的硬件信息
-          Object.defineProperty(navigator, 'hardwareConcurrency', {
-            get: () => 8
-          })
-
-          Object.defineProperty(navigator, 'deviceMemory', {
-            get: () => 8
-          })
-
-          // 覆盖Chrome运行时检测
-          if ('chrome' in window) {
-            Object.defineProperty(window, 'chrome', {
-              get: () => ({
-                runtime: {
-                  onConnect: null,
-                  onMessage: null
-                },
-                app: {
-                  isInstalled: false
-                }
-              })
-            })
           }
-
-          // 移除phantom相关属性
-          delete (window as any).phantom
-          delete (window as any).__phantomas
-          delete (window as any).callPhantom
-
-          // 移除nightmare相关属性
-          delete (window as any).__nightmare
-
-          // 覆盖toString方法避免检测
-          const originalToString = Function.prototype.toString
-          Function.prototype.toString = function() {
-            if (this === navigator.webdriver) {
-              return 'function webdriver() { [native code] }'
-            }
-            return originalToString.call(this)
-          }
+        }
+        
+        // 🔥 关键9：按照playwright-mcp的方式合并配置
+        const finalOptions = {
+          ...launchOptions,
+          ...contextOptions,
+        }
+        
+        console.log('🔧 启动配置:', {
+          assistantMode: finalOptions.assistantMode,
+          channel: finalOptions.channel,
+          chromiumSandbox: finalOptions.chromiumSandbox,
+          userDataDir
         })
+        
+        const browserContext = await chromium.launchPersistentContext(userDataDir, finalOptions)
+
+        // 完全依赖assistantMode处理反检测，不添加额外脚本
 
         const close = () => this._closeBrowserContext(browserContext, userDataDir)
         
@@ -228,65 +279,29 @@ export class PersistentContextFactory implements BrowserContextFactory {
   }
 
   private async _setupRequestInterception(browserContext: BrowserContext) {
-    // 🔥 关键7：精确的请求拦截 - 修复版本
+    // 简化版本：只拦截明显的追踪请求，不干扰Cloudflare
     await callOnContextNoTrace(browserContext, async (context) => {
       await context.route('**/*', (route) => {
         const url = route.request().url()
-        const resourceType = route.request().resourceType()
         
-        // ✅ 允许Cloudflare验证相关请求通过
-        const cloudflareAllowPatterns = [
-          'cdn-cgi/challenge-platform',
-          'cdn-cgi/styles',
-          'cdn-cgi/scripts',
-          'turnstile.pagescdn.com',
-          '__cf_bm'
-        ]
-        
-        const isCloudflareValid = cloudflareAllowPatterns.some(pattern => 
-          url.includes(pattern)
-        )
-        
-        if (isCloudflareValid) {
-          console.log(`✅ 允许Cloudflare验证请求: ${url}`)
-          // 直接继续，不修改headers以避免干扰验证
-          route.continue()
-          return
-        }
-        
-        // 🚫 阻止真正的追踪和分析请求
-        const suspiciousPatterns = [
-          'google-analytics', 'gtag', 'gtm', 'ga-audiences',
+        // 只阻止明显的追踪请求
+        const trackingPatterns = [
+          'google-analytics', 'gtag', 'gtm',
           'facebook.com/tr', 'connect.facebook.net',
-          'doubleclick.net', 'googlesyndication.com',
-          'hotjar', 'mixpanel', 'segment.com', 'amplitude.com',
-          'clarity.ms', 'bing.com/analytics',
-          'webdriver', 'automation', 'bot-detection',
-          'fingerprint', 'device-fingerprint'
+          'doubleclick.net', 'googlesyndication.com'
         ]
         
-        // 检查URL是否包含真正可疑的模式
-        const isSuspicious = suspiciousPatterns.some(pattern => 
+        const isTracking = trackingPatterns.some(pattern => 
           url.toLowerCase().includes(pattern)
         )
         
-        if (isSuspicious) {
-          console.log(`🚫 阻止追踪请求: ${url}`)
+        if (isTracking) {
           route.abort('blockedbyclient')
           return
         }
         
-        // 阻止某些资源类型以提高性能（但保留必要的）
-        if (resourceType === 'media' && !url.includes('avatar') && !url.includes('logo')) {
-          route.abort('blockedbyclient')
-          return
-        }
-        
-        // 修改User-Agent确保一致性（除了Cloudflare验证请求）
-        const headers = route.request().headers()
-        headers['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-        
-        route.continue({ headers })
+        // 其他请求直接通过，不修改headers
+        route.continue()
       })
     })
   }
@@ -329,16 +344,20 @@ export class PersistentContextFactory implements BrowserContextFactory {
       cacheDirectory = app.getPath('userData')
     }
     
-    const result = path.join(cacheDirectory, 'prompthub-playwright', 'chrome-profile')
+    const result = path.join(cacheDirectory, 'ms-playwright', 'mcp-chrome-profile')
     await fs.promises.mkdir(result, { recursive: true })
     
     return result
   }
 }
 
-/**
- * 创建默认的浏览器上下文工厂
- */
-export function createBrowserContextFactory(userDataDir?: string): BrowserContextFactory {
-  return new PersistentContextFactory(userDataDir)
+export function createBrowserContextFactory(
+  options: { extensionMode?: boolean; port?: number; userDataDir?: string } = {}
+): BrowserContextFactory {
+  if (options.extensionMode) {
+    console.log('🚀 使用扩展模式创建浏览器上下文工厂')
+    return new ExtensionContextFactory(options.port || 9223)
+  }
+  console.log('🚀 使用持久化模式创建浏览器上下文工厂')
+  return new PersistentContextFactory(options.userDataDir)
 }

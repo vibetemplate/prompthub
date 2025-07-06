@@ -11,7 +11,7 @@ export default defineConfig({
         formats: ['cjs']
       },
       rollupOptions: {
-        external: ['electron', 'playwright', 'playwright-extra', 'uuid']
+        external: ['electron', 'playwright', 'playwright-extra', 'uuid', 'ws', 'bufferutil', 'utf-8-validate']
       }
     }
   },

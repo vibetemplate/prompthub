@@ -16,10 +16,9 @@ const App: React.FC = () => {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        await Promise.all([
-          loadPrompts(),
-          loadTabs(),
-        ])
+        await loadPrompts()
+        // 只加载已存在的标签页，不创建新的
+        await loadTabs()
       } catch (error) {
         console.error('Failed to initialize app:', error)
         message.error('应用初始化失败')

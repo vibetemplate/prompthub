@@ -92,25 +92,17 @@ export async function simulateHumanBehavior(page: Page): Promise<void> {
 }
 
 /**
- * 高级的页面加载等待策略
+ * 简化的页面等待策略
  */
-export async function waitForPageReady(page: Page, timeout: number = 30000): Promise<void> {
+export async function waitForPageReady(page: Page, timeout: number = 10000): Promise<void> {
   try {
-    // 等待DOM加载
+    // 只等待DOM加载完成
     await callOnPageNoTrace(page, async (page) => {
       await page.waitForLoadState('domcontentloaded', { timeout })
     })
     
-    // 等待网络空闲
-    await waitForNetworkIdle(page, 5000)
-    
-    // 等待一些常见的加载指示器消失
-    await callOnPageNoTrace(page, async (page) => {
-      await page.waitForFunction(() => {
-        const loadingElements = document.querySelectorAll('[class*="loading"], [class*="spinner"], [id*="loading"]')
-        return loadingElements.length === 0
-      }, { timeout: 10000 }).catch(() => {})
-    })
+    // 短暂等待让页面稳定
+    await humanDelay(1000, 2000)
     
   } catch (error) {
     console.warn('⚠️ 页面加载等待超时，继续执行:', error)
@@ -156,31 +148,38 @@ export async function handleCloudflareChallenge(page: Page): Promise<boolean> {
   try {
     console.log('🔍 检测到Cloudflare挑战，等待验证完成...')
     
-    // 等待挑战完成 - 增加超时时间并添加更多检查条件
-    await callOnPageNoTrace(page, async (page) => {
-      // 等待最多60秒让Cloudflare验证完成
-      await page.waitForFunction(() => {
-        const title = document.title
-        const bodyText = document.body?.textContent || ''
-        const url = window.location.href
-        
-        // 检查多个条件确保验证完成
-        return !title.includes('Just a moment') && 
-               !title.includes('Please wait') &&
-               !bodyText.includes('Checking your browser') &&
-               !bodyText.includes('Please stand by') &&
-               !url.includes('challenge-platform')
-      }, { timeout: 60000 })
-    })
+    // 模拟真实用户行为：轻微鼠标移动
+    await simulateHumanBehavior(page)
     
-    // 验证完成后再等待一下确保页面完全加载
-    await humanDelay(2000, 3000)
+    // 分阶段等待策略
+    let attempts = 0
+    const maxAttempts = 12 // 60秒，每5秒检查一次
     
-    console.log('✅ Cloudflare挑战验证完成')
-    return true
+    while (attempts < maxAttempts) {
+      const isStillChallenge = await isCloudflareChallenge(page)
+      
+      if (!isStillChallenge) {
+        console.log('✅ Cloudflare挑战验证完成')
+        await humanDelay(1000, 2000) // 最后等待页面稳定
+        return true
+      }
+      
+      // 每次等待时都模拟一些用户行为
+      if (attempts % 3 === 0) {
+        await simulateHumanBehavior(page)
+      }
+      
+      // 等待5秒后再次检查
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      attempts++
+      
+      console.log(`🔄 等待Cloudflare验证... (${attempts}/${maxAttempts})`)
+    }
+    
+    console.warn('⚠️ Cloudflare挑战等待超时，但继续执行')
+    return false
   } catch (error) {
-    console.warn('⚠️ Cloudflare挑战等待超时，尝试继续:', error)
-    // 不抛出错误，让流程继续
+    console.warn('⚠️ Cloudflare挑战处理出错，尝试继续:', error)
     return false
   }
 }

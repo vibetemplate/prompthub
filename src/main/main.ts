@@ -3,6 +3,9 @@ import * as path from 'path'
 import { setupIpcHandlers } from './ipc/handlers'
 import { PlaywrightController } from './playwright/controller'
 
+// 🔥 切换到持久化模式 (扩展模式需要手动安装Chrome扩展)
+const USE_EXTENSION_MODE = false
+
 // 检测开发模式
 const isDev = process.env.NODE_ENV === 'development'
 
@@ -50,7 +53,9 @@ app.whenReady().then(() => {
   createWindow()
   
   // 初始化Playwright控制器
-  playwrightController = new PlaywrightController()
+  playwrightController = new PlaywrightController({
+    extensionMode: USE_EXTENSION_MODE
+  })
   
   // 设置IPC处理程序
   setupIpcHandlers(playwrightController)

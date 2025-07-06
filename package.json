@@ -41,10 +41,12 @@
   "dependencies": {
     "@ant-design/icons": "^5.0.0",
     "antd": "^5.0.0",
+    "bufferutil": "^4.0.9",
     "immer": "^10.0.0",
     "playwright": "^1.53.2",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
+    "utf-8-validate": "^6.0.5",
     "uuid": "^9.0.0",
     "zustand": "^4.0.0"
   },
