@@ -18,6 +18,12 @@ export interface ElectronAPI {
     executePrompt: (tabId: string, websiteType: string, prompt: string) => Promise<void>
     getPageContent: (tabId: string) => Promise<string>
     getTabs: () => Promise<any[]>
+    getSupportedWebsites: () => Promise<Array<{
+      id: string
+      name: string
+      url: string
+      requiresProxy: boolean
+    }>>
   }
   
   // 设置管理
@@ -44,6 +50,7 @@ const electronAPI: ElectronAPI = {
     executePrompt: (tabId, websiteType, prompt) => ipcRenderer.invoke('browser:executePrompt', tabId, websiteType, prompt),
     getPageContent: (tabId) => ipcRenderer.invoke('browser:getPageContent', tabId),
     getTabs: () => ipcRenderer.invoke('browser:getTabs'),
+    getSupportedWebsites: () => ipcRenderer.invoke('browser:getSupportedWebsites'),
   },
   
   settings: {

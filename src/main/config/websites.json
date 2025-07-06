@@ -1,0 +1,150 @@
+{
+  "categories": [
+    {
+      "id": "domestic",
+      "name": "domestic",
+      "displayName": "国内大模型",
+      "description": "国内主流AI大语言模型服务",
+      "websites": [
+        {
+          "id": "deepseek",
+          "name": "DeepSeek",
+          "url": "https://chat.deepseek.com/",
+          "description": "深度求索AI对话助手",
+          "icon": "🤖",
+          "category": "domestic",
+          "tags": ["对话", "编程", "推理"],
+          "isActive": true
+        },
+        {
+          "id": "tongyi",
+          "name": "通义千问",
+          "url": "https://tongyi.aliyun.com/qianwen/",
+          "description": "阿里云通义千问大模型",
+          "icon": "💬",
+          "category": "domestic",
+          "tags": ["对话", "创作", "分析"],
+          "isActive": true
+        },
+        {
+          "id": "wenxin",
+          "name": "文心一言",
+          "url": "https://yiyan.baidu.com/",
+          "description": "百度文心一言智能对话",
+          "icon": "📝",
+          "category": "domestic",
+          "tags": ["对话", "写作", "搜索"],
+          "isActive": true
+        },
+        {
+          "id": "zhipu",
+          "name": "智谱AI",
+          "url": "https://chatglm.cn/",
+          "description": "清华智谱ChatGLM",
+          "icon": "🧠",
+          "category": "domestic",
+          "tags": ["对话", "编程", "学术"],
+          "isActive": true
+        },
+        {
+          "id": "kimi",
+          "name": "Kimi",
+          "url": "https://kimi.moonshot.cn/",
+          "description": "月之暗面Kimi智能助手",
+          "icon": "🌙",
+          "category": "domestic",
+          "tags": ["对话", "长文本", "分析"],
+          "isActive": true
+        },
+        {
+          "id": "doubao",
+          "name": "豆包",
+          "url": "https://www.doubao.com/",
+          "description": "字节跳动豆包AI助手",
+          "icon": "🎒",
+          "category": "domestic",
+          "tags": ["对话", "创作", "娱乐"],
+          "isActive": true
+        },
+        {
+          "id": "yuanbao",
+          "name": "元宝",
+          "url": "https://yuanbao.tencent.com/",
+          "description": "腾讯元宝AI助手",
+          "icon": "💎",
+          "category": "domestic",
+          "tags": ["对话", "办公", "创作"],
+          "isActive": true
+        }
+      ]
+    },
+    {
+      "id": "international",
+      "name": "international", 
+      "displayName": "国外大模型",
+      "description": "国外主流AI大语言模型服务",
+      "websites": [
+        {
+          "id": "chatgpt",
+          "name": "ChatGPT",
+          "url": "https://chatgpt.com/",
+          "description": "OpenAI ChatGPT智能对话",
+          "icon": "🤖",
+          "category": "international",
+          "tags": ["对话", "编程", "创作"],
+          "isActive": true
+        },
+        {
+          "id": "claude",
+          "name": "Claude",
+          "url": "https://claude.ai/",
+          "description": "Anthropic Claude智能助手",
+          "icon": "🎭",
+          "category": "international",
+          "tags": ["对话", "分析", "编程"],
+          "isActive": true
+        },
+        {
+          "id": "gemini",
+          "name": "Gemini",
+          "url": "https://gemini.google.com/",
+          "description": "Google Gemini AI助手",
+          "icon": "⭐",
+          "category": "international",
+          "tags": ["对话", "搜索", "多模态"],
+          "isActive": true
+        },
+        {
+          "id": "copilot",
+          "name": "Copilot",
+          "url": "https://copilot.microsoft.com/",
+          "description": "Microsoft Copilot智能助手",
+          "icon": "🛩️",
+          "category": "international",
+          "tags": ["对话", "办公", "搜索"],
+          "isActive": true
+        },
+        {
+          "id": "perplexity",
+          "name": "Perplexity",
+          "url": "https://www.perplexity.ai/",
+          "description": "Perplexity AI搜索引擎",
+          "icon": "🔍",
+          "category": "international",
+          "tags": ["搜索", "研究", "分析"],
+          "isActive": true
+        },
+        {
+          "id": "poe",
+          "name": "Poe",
+          "url": "https://poe.com/",
+          "description": "Quora Poe多模型平台",
+          "icon": "🎯",
+          "category": "international",
+          "tags": ["多模型", "对话", "比较"],
+          "isActive": true
+        }
+      ]
+    }
+  ]
+}

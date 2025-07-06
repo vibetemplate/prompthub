@@ -53,6 +53,10 @@ export function setupIpcHandlers(playwrightController: PlaywrightController): vo
     return await playwrightController.getTabs()
   })
 
+  ipcMain.handle('browser:getSupportedWebsites', async () => {
+    return playwrightController.getAllSupportedWebsites()
+  })
+
   // 设置管理
   ipcMain.handle('settings:get', async (event, key) => {
     return await settingsManager.get(key)

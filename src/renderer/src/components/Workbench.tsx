@@ -1,12 +1,33 @@
-import React from 'react'
-import { Tabs, Button, Space, Empty, Typography } from 'antd'
+import React, { useState, useEffect } from 'react'
+import { Tabs, Button, Space, Empty, Typography, Row, Col } from 'antd'
 import { PlusOutlined, CloseOutlined, GlobalOutlined } from '@ant-design/icons'
 import { useBrowserStore } from '../stores/browser-store'
 
 const { Text } = Typography
 
+interface SupportedWebsite {
+  id: string
+  name: string
+  url: string
+  requiresProxy: boolean
+}
+
 export const Workbench: React.FC = () => {
   const { tabs, activeTabId, setActiveTab, closeTab, openTab } = useBrowserStore()
+  const [supportedWebsites, setSupportedWebsites] = useState<SupportedWebsite[]>([])
+
+  useEffect(() => {
+    const loadSupportedWebsites = async () => {
+      try {
+        const websites = await window.electronAPI.browser.getSupportedWebsites()
+        setSupportedWebsites(websites)
+      } catch (error) {
+        console.error('Failed to load supported websites:', error)
+      }
+    }
+    
+    loadSupportedWebsites()
+  }, [])
 
   const handleTabChange = (key: string) => {
     setActiveTab(key)
@@ -14,7 +35,11 @@ export const Workbench: React.FC = () => {
 
   const handleTabEdit = (targetKey: React.MouseEvent | React.KeyboardEvent | string, action: 'add' | 'remove') => {
     if (action === 'add') {
-      openTab('https://chat.deepseek.com')
+      // 默认打开第一个支持的网站
+      const firstWebsite = supportedWebsites[0]
+      if (firstWebsite) {
+        openTab(firstWebsite.url)
+      }
     } else {
       closeTab(targetKey as string)
     }
@@ -84,21 +109,32 @@ export const Workbench: React.FC = () => {
           description="暂无打开的标签页"
           style={{ marginBottom: '40px' }}
         >
-          <Space>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => openTab('https://chat.deepseek.com')}
-            >
-              打开 DeepSeek
-            </Button>
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() => openTab('https://chatgpt.com')}
-            >
-              打开 ChatGPT
-            </Button>
-          </Space>
+          <div style={{ maxWidth: '600px' }}>
+            <Text type="secondary" style={{ marginBottom: '16px', display: 'block' }}>
+              选择要打开的 AI 网站：
+            </Text>
+            <Row gutter={[12, 12]}>
+              {supportedWebsites.map((website, index) => (
+                <Col key={website.id} span={12} md={8} lg={6}>
+                  <Button
+                    type={index === 0 ? "primary" : "default"}
+                    icon={<PlusOutlined />}
+                    onClick={() => openTab(website.url)}
+                    style={{ width: '100%' }}
+                    size="small"
+                  >
+                    {website.name}
+                    {website.requiresProxy && (
+                      <span style={{ fontSize: '10px', opacity: 0.7 }}> (需代理)</span>
+                    )}
+                  </Button>
+                </Col>
+              ))}
+            </Row>
+            {supportedWebsites.length === 0 && (
+              <Text type="secondary">正在加载支持的网站...</Text>
+            )}
+          </div>
         </Empty>
       </div>
     )

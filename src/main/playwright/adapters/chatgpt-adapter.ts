@@ -1,72 +1,73 @@
-import { Page } from 'playwright'
-import { WebsiteAdapter } from './base-adapter'
+import { WebsiteAdapter, SelectorConfig } from './base-adapter'
 
 export class ChatGPTAdapter extends WebsiteAdapter {
-  protected websiteType = 'chatgpt'
-  protected selectors = {
-    inputArea: '#prompt-textarea, textarea[data-id="root"]',
-    sendButton: '[data-testid="send-button"], button[aria-label="Send prompt"]',
-    chatContainer: '.conversation-content',
-    lastMessage: '[data-message-author-role="assistant"]:last-child',
-  }
+  readonly websiteId = 'chatgpt'
+  readonly websiteName = 'ChatGPT'
+  readonly websiteUrl = 'https://chatgpt.com/'
+  readonly requiresProxy = true
 
-  async executePrompt(page: Page, prompt: string): Promise<void> {
-    try {
-      console.log('💬 ChatGPT: Starting prompt execution...')
-      
-      // 等待页面加载完成
-      await page.waitForSelector(this.selectors.inputArea, { timeout: 15000 })
-      
-      // 清空输入框并输入提示词 - 使用Playwright的更简洁方式
-      await page.click(this.selectors.inputArea)
-      await page.keyboard.press('Control+KeyA')
-      await page.fill(this.selectors.inputArea, prompt)
-      
-      // 等待一下让内容加载
-      await page.waitForTimeout(500)
-      
-      // 查找并点击发送按钮 - 使用Playwright的locator
-      const sendButton = page.locator(this.selectors.sendButton).first()
-      if (await sendButton.isVisible()) {
-        await sendButton.click()
-        console.log('💬 ChatGPT: Send button clicked')
-      } else {
-        // 如果找不到发送按钮，尝试回车
-        await page.keyboard.press('Enter')
-        console.log('💬 ChatGPT: Used Enter key')
-      }
-      
-      // 等待响应
-      await this.waitForResponse(page)
-      
-    } catch (error) {
-      console.error('❌ ChatGPT adapter error:', error)
-      throw error
+  getSelectors(): SelectorConfig {
+    return {
+      inputArea: [
+        '#prompt-textarea',
+        'textarea[data-id="root"]',
+        '[data-testid="textbox"]',
+        '[placeholder*="Message ChatGPT"]',
+        '[placeholder*="Send a message"]',
+        'textarea[placeholder*="Message ChatGPT"]',
+        'textarea[placeholder*="Send a message"]',
+        '.ProseMirror',
+        '[contenteditable="true"]'
+      ],
+      sendButton: [
+        '[data-testid="send-button"]',
+        'button[aria-label="Send prompt"]',
+        'button[aria-label="Send message"]',
+        'button[aria-label="发送消息"]',
+        'button:has-text("Send")',
+        'button:has-text("发送")',
+        '[data-testid="fruitjuice-send-button"]'
+      ],
+      chatContainer: [
+        '.conversation-content',
+        '[data-testid="conversation"]',
+        '.chat-messages'
+      ],
+      lastMessage: [
+        '[data-message-author-role="assistant"]:last-child'
+      ]
     }
   }
 
+  isCurrentWebsite(url: string): boolean {
+    return url.includes('chat.openai.com') || 
+           url.includes('chatgpt.com') ||
+           url.includes('openai.com/chat')
+  }
+
+  /**
+   * ChatGPT 特定的响应等待逻辑
+   */
   protected async waitForResponse(page: Page): Promise<void> {
     try {
-      console.log('💬 ChatGPT: Waiting for response...')
+      console.log('💬 ChatGPT: 等待响应...')
       
-      // 等待新消息出现 - Playwright的waitForFunction更简洁
+      // 等待新消息出现
       await page.waitForFunction(() => {
         const messages = document.querySelectorAll('[data-message-author-role="assistant"]')
         return messages.length > 0
       }, { timeout: 30000 })
       
-      console.log('💬 ChatGPT: Message appeared, waiting for completion...')
-      
-      // 等待响应完成（检查是否有正在打字的指示器）
+      // 等待响应完成（检查停止按钮是否禁用）
       await page.waitForFunction(() => {
         const stopButton = document.querySelector('[data-testid="stop-button"]')
         return !stopButton || stopButton.getAttribute('disabled') === 'true'
       }, { timeout: 60000 })
       
-      console.log('✅ ChatGPT: Response completed')
+      console.log('✅ ChatGPT: 响应完成')
       
     } catch (error) {
-      console.warn('⚠️ ChatGPT: Failed to wait for complete response, continuing:', error)
+      console.warn('⚠️ ChatGPT: 等待响应失败:', error)
     }
   }
 }

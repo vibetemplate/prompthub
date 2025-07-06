@@ -1,8 +1,7 @@
 import { Page, BrowserContext } from 'playwright'
 import { v4 as uuidv4 } from 'uuid'
-import { WebsiteAdapter } from './adapters/base-adapter'
-import { DeepSeekAdapter } from './adapters/deepseek-adapter'
-import { ChatGPTAdapter } from './adapters/chatgpt-adapter'
+import { IWebsiteAdapter } from './adapters/base-adapter'
+import { AdapterFactory } from './adapters/adapter-factory'
 import { createBrowserContextFactory, BrowserContextFactory } from './browserContextFactory'
 import { 
   callOnPageNoTrace, 
@@ -25,17 +24,12 @@ export class PlaywrightController {
   private browserContextFactory: BrowserContextFactory
   private closeBrowserContext: (() => Promise<void>) | null = null
   private tabs: Map<string, BrowserTab> = new Map()
-  private adapters: Map<string, WebsiteAdapter> = new Map()
+  private adapterFactory: AdapterFactory
   private currentTab: BrowserTab | null = null
 
   constructor(options: { extensionMode?: boolean; userDataDir?: string } = {}) {
     this.browserContextFactory = createBrowserContextFactory(options)
-    this.initializeAdapters()
-  }
-
-  private initializeAdapters(): void {
-    this.adapters.set('deepseek', new DeepSeekAdapter())
-    this.adapters.set('chatgpt', new ChatGPTAdapter())
+    this.adapterFactory = AdapterFactory.getInstance()
   }
 
   private initializationPromise: Promise<void> | null = null
@@ -78,45 +72,81 @@ export class PlaywrightController {
       throw new Error('浏览器上下文未初始化')
     }
 
-    if (!this.currentTab) {
-      // 检查是否已有页面存在
-      const existingPages = this.browserContext.pages()
-      if (existingPages.length > 0) {
-        // 复用第一个页面
-        const page = existingPages[0]
-        const tabId = uuidv4()
-        
-        const tab: BrowserTab = {
-          id: tabId,
-          url: page.url(),
-          title: await page.title(),
-          page,
-          websiteType: this.detectWebsiteType(page.url()),
-        }
-        
-        this.tabs.set(tabId, tab)
+    // 检查当前标签页是否有效
+    if (this.currentTab && !this.currentTab.page.isClosed()) {
+      return this.currentTab
+    }
+
+    // 清理无效的当前标签页
+    if (this.currentTab && this.currentTab.page.isClosed()) {
+      console.log('🧹 清理已关闭的当前标签页')
+      this.tabs.delete(this.currentTab.id)
+      this.currentTab = null
+    }
+
+    // 检查是否有其他有效的标签页
+    for (const [tabId, tab] of this.tabs) {
+      if (!tab.page.isClosed()) {
         this.currentTab = tab
-        console.log(`🔄 复用现有标签页: ${tab.title}`)
+        console.log(`🔄 复用现有有效标签页: ${tab.title}`)
+        return this.currentTab
       } else {
-        // 创建新页面
-        const page = await this.browserContext.newPage()
-        const tabId = uuidv4()
-        
-        const tab: BrowserTab = {
-          id: tabId,
-          url: 'about:blank',
-          title: '',
-          page,
-          websiteType: undefined,
-        }
-        
-        this.tabs.set(tabId, tab)
-        this.currentTab = tab
-        console.log(`🆕 创建新标签页: ${tabId}`)
+        // 清理已关闭的标签页
+        console.log(`🧹 清理已关闭的标签页: ${tabId}`)
+        this.tabs.delete(tabId)
       }
     }
-    
-    return this.currentTab
+
+    // 检查浏览器上下文中的页面
+    try {
+      const existingPages = this.browserContext.pages()
+      for (const page of existingPages) {
+        if (!page.isClosed()) {
+          const tabId = uuidv4()
+          
+          const tab: BrowserTab = {
+            id: tabId,
+            url: page.url(),
+            title: await page.title().catch(() => ''),
+            page,
+            websiteType: this.detectWebsiteType(page.url()),
+          }
+          
+          this.tabs.set(tabId, tab)
+          this.currentTab = tab
+          console.log(`🔄 复用浏览器中的页面: ${tab.title}`)
+          return this.currentTab
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ 检查现有页面时出错:', error)
+    }
+
+    // 创建新页面
+    try {
+      console.log('🆕 创建新标签页...')
+      const page = await this.browserContext.newPage()
+      const tabId = uuidv4()
+      
+      const tab: BrowserTab = {
+        id: tabId,
+        url: 'about:blank',
+        title: '',
+        page,
+        websiteType: undefined,
+      }
+      
+      this.tabs.set(tabId, tab)
+      this.currentTab = tab
+      console.log(`✅ 新标签页创建成功: ${tabId}`)
+      return this.currentTab
+    } catch (error) {
+      console.error('❌ 创建新标签页失败:', error)
+      // 重新初始化浏览器上下文
+      this.browserContext = null
+      this.initializationPromise = null
+      throw new Error('无法创建新标签页，浏览器上下文可能已关闭')
+    }
   }
 
   async openTab(url: string): Promise<string> {
@@ -199,12 +229,19 @@ export class PlaywrightController {
       throw new Error(`Tab ${tabId} not found`)
     }
 
-    const adapter = this.adapters.get(websiteType)
+    // 尝试根据网站类型获取适配器
+    let adapter = this.adapterFactory.getAdapter(websiteType)
+    
+    // 如果没找到，尝试根据URL自动检测
     if (!adapter) {
-      throw new Error(`Adapter for ${websiteType} not found`)
+      adapter = this.adapterFactory.getAdapterByUrl(tab.url)
+    }
+    
+    if (!adapter) {
+      throw new Error(`Adapter for ${websiteType} not found. Supported websites: ${this.adapterFactory.getAllWebsites().map(w => w.name).join(', ')}`)
     }
 
-    console.log(`🎯 Executing prompt on ${websiteType}: "${prompt.substring(0, 50)}..."`)
+    console.log(`🎯 执行提示词于 ${adapter.websiteName}: "${prompt.substring(0, 50)}..."`)
     await adapter.executePrompt(tab.page, prompt)
   }
 
@@ -231,25 +268,19 @@ export class PlaywrightController {
   }
 
   private detectWebsiteType(url: string): string | undefined {
-    if (url.includes('deepseek.com')) {
-      return 'deepseek'
-    }
-    if (url.includes('chatgpt.com') || url.includes('chat.openai.com')) {
-      return 'chatgpt'
-    }
-    if (url.includes('claude.ai')) {
-      return 'claude'
-    }
-    if (url.includes('gemini.google.com')) {
-      return 'gemini'
-    }
-    if (url.includes('kimi.moonshot.cn')) {
-      return 'kimi'
-    }
-    if (url.includes('tongyi.aliyun.com')) {
-      return 'tongyi'
-    }
-    return undefined
+    // 使用适配器工厂自动检测网站类型
+    const adapter = this.adapterFactory.getAdapterByUrl(url)
+    return adapter?.websiteId
+  }
+
+  // 新增：获取所有支持的网站列表
+  getAllSupportedWebsites(): Array<{
+    id: string
+    name: string
+    url: string
+    requiresProxy: boolean
+  }> {
+    return this.adapterFactory.getAllWebsites()
   }
 
   async cleanup(): Promise<void> {
