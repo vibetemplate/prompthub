@@ -26,6 +26,7 @@ export class PlaywrightController {
   private closeBrowserContext: (() => Promise<void>) | null = null
   private tabs: Map<string, BrowserTab> = new Map()
   private adapters: Map<string, WebsiteAdapter> = new Map()
+  private currentTab: BrowserTab | null = null
 
   constructor(options: { extensionMode?: boolean; userDataDir?: string } = {}) {
     this.browserContextFactory = createBrowserContextFactory(options)
@@ -70,21 +71,63 @@ export class PlaywrightController {
     }
   }
 
+  private async ensureTab(): Promise<BrowserTab> {
+    await this.initialize()
+    
+    if (!this.browserContext) {
+      throw new Error('浏览器上下文未初始化')
+    }
+
+    if (!this.currentTab) {
+      // 检查是否已有页面存在
+      const existingPages = this.browserContext.pages()
+      if (existingPages.length > 0) {
+        // 复用第一个页面
+        const page = existingPages[0]
+        const tabId = uuidv4()
+        
+        const tab: BrowserTab = {
+          id: tabId,
+          url: page.url(),
+          title: await page.title(),
+          page,
+          websiteType: this.detectWebsiteType(page.url()),
+        }
+        
+        this.tabs.set(tabId, tab)
+        this.currentTab = tab
+        console.log(`🔄 复用现有标签页: ${tab.title}`)
+      } else {
+        // 创建新页面
+        const page = await this.browserContext.newPage()
+        const tabId = uuidv4()
+        
+        const tab: BrowserTab = {
+          id: tabId,
+          url: 'about:blank',
+          title: '',
+          page,
+          websiteType: undefined,
+        }
+        
+        this.tabs.set(tabId, tab)
+        this.currentTab = tab
+        console.log(`🆕 创建新标签页: ${tabId}`)
+      }
+    }
+    
+    return this.currentTab
+  }
+
   async openTab(url: string): Promise<string> {
     try {
       console.log(`🌐 打开标签页: ${url}`)
-      await this.initialize()
       
-      if (!this.browserContext) {
-        throw new Error('浏览器上下文未初始化')
-      }
-
-      // 创建新页面
-      const page = await this.browserContext.newPage()
-      const tabId = uuidv4()
+      // 确保有可用的标签页
+      const tab = await this.ensureTab()
       
       // 设置页面超时 - 使用更合理的超时设置
-      await callOnPageNoTrace(page, async (page) => {
+      await callOnPageNoTrace(tab.page, async (page) => {
         page.setDefaultTimeout(60000)
         page.setDefaultNavigationTimeout(60000)
       })
@@ -92,7 +135,7 @@ export class PlaywrightController {
       console.log(`🔄 导航到: ${url}`)
       
       // 使用内部API导航，避免被检测
-      await callOnPageNoTrace(page, async (page) => {
+      await callOnPageNoTrace(tab.page, async (page) => {
         await page.goto(url, { 
           waitUntil: 'domcontentloaded',
           timeout: 60000 
@@ -100,13 +143,13 @@ export class PlaywrightController {
       })
       
       // 等待页面完全加载，让assistantMode自然处理任何挑战
-      await waitForPageReady(page)
+      await waitForPageReady(tab.page)
       
       // 简单的人类行为模拟
-      await simulateHumanBehavior(page)
+      await simulateHumanBehavior(tab.page)
       
       // 获取页面信息 - 使用内部API避免检测
-      const title = await callOnPageNoTrace(page, async (page) => {
+      const title = await callOnPageNoTrace(tab.page, async (page) => {
         return await page.title()
       })
       
@@ -114,16 +157,12 @@ export class PlaywrightController {
       
       console.log(`✅ 标签页打开成功: ${title}`)
       
-      const tab: BrowserTab = {
-        id: tabId,
-        url,
-        title,
-        page,
-        websiteType,
-      }
+      // 更新标签页信息
+      tab.url = url
+      tab.title = title
+      tab.websiteType = websiteType
       
-      this.tabs.set(tabId, tab)
-      return tabId
+      return tab.id
     } catch (error) {
       console.error(`❌ 打开标签页失败 ${url}:`, error)
       throw error
@@ -141,6 +180,12 @@ export class PlaywrightController {
         await tab.page.close()
       }
       this.tabs.delete(tabId)
+      
+      // 如果关闭的是当前标签页，清除当前标签页引用
+      if (this.currentTab === tab) {
+        this.currentTab = null
+      }
+      
       console.log(`🗑️ Tab ${tabId} closed successfully`)
     } catch (error) {
       console.error(`❌ Failed to close tab ${tabId}:`, error)
@@ -224,6 +269,9 @@ export class PlaywrightController {
       
       // 清空标签页映射
       this.tabs.clear()
+      
+      // 清除当前标签页引用
+      this.currentTab = null
       
       // 关闭浏览器上下文
       if (this.closeBrowserContext) {

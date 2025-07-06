@@ -177,14 +177,9 @@ export class PersistentContextFactory implements BrowserContextFactory {
           // 超时设置
           timeout: 60000,
           
-          // 🔥 关键5：简化启动参数，专注于必要的配置
+          // 🔥 关键5：简化启动参数，移除不建议的沙盒参数，让Playwright自动管理
           args: [
-            // 基本沙盒配置 
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            
-            // 基础优化
+            // 基础优化（移除沙盒相关参数，使用chromiumSandbox配置）
             '--no-first-run',
             '--disable-default-apps',
             '--no-default-browser-check',
